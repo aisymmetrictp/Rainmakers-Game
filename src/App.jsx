@@ -1,10 +1,85 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 
 import { STORAGE_KEY, TICK_MS, OFFLINE_CAP_SEC, ECONOMIC_EVENTS, RIVAL_FIRMS, HIRE_BASE_COSTS, $, fmt } from "./constants.js";
 import { createInitialState, computeProduction, tickGame } from "./engine.js";
 import { hire, startContract, attackMarket, defendMarket, buyUpgrade, prestigeReset, newGame } from "./actions.js";
 import { PixelFigure, PixelRival, ROLE_COLORS } from "./components/PixelCharacters.jsx";
 import { ErrorBoundary } from "./components/ErrorBoundary.jsx";
+
+// ============================================================
+// WEB AUDIO SOUND EFFECTS HOOK
+// ============================================================
+function useSounds(muted) {
+  const ctxRef = useRef(null);
+
+  const getCtx = useCallback(() => {
+    if (ctxRef.current) return ctxRef.current;
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    ctxRef.current = new AC();
+    return ctxRef.current;
+  }, []);
+
+  const playTone = useCallback((freq, type, duration, volume = 0.4, startTime = 0) => {
+    if (muted) return;
+    const ctx = getCtx();
+    if (!ctx) return;
+    if (ctx.state === "suspended") ctx.resume();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, ctx.currentTime + startTime);
+    gain.gain.setValueAtTime(volume, ctx.currentTime + startTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + startTime + duration);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(ctx.currentTime + startTime);
+    osc.stop(ctx.currentTime + startTime + duration);
+    return osc;
+  }, [muted, getCtx]);
+
+  const sounds = useMemo(() => ({
+    win: () => {
+      // Ascending 3-note chime: C5, E5, G5 — 80ms each
+      playTone(523.25, "sine", 0.08, 0.4, 0);
+      playTone(659.25, "sine", 0.08, 0.4, 0.08);
+      playTone(783.99, "sine", 0.08, 0.4, 0.16);
+    },
+    lose: () => {
+      // Descending 2-note tone: A3, F3 — 120ms each
+      playTone(220, "sawtooth", 0.12, 0.3, 0);
+      playTone(174.61, "sawtooth", 0.12, 0.3, 0.12);
+    },
+    attack: () => {
+      // Short sharp click: noise burst 30ms
+      playTone(220, "square", 0.03, 0.35, 0);
+    },
+    upgrade: () => {
+      // Rising sweep: freq ramp 300→900Hz over 200ms
+      if (muted) return;
+      const ctx = getCtx();
+      if (!ctx) return;
+      if (ctx.state === "suspended") ctx.resume();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(300, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(900, ctx.currentTime + 0.2);
+      gain.gain.setValueAtTime(0.4, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.2);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.2);
+    },
+    warning: () => {
+      // Low pulse: 60ms at 180Hz, volume 0.3
+      playTone(180, "sine", 0.06, 0.3, 0);
+    },
+  }), [muted, playTone, getCtx]);
+
+  return sounds;
+}
 
 // ============================================================
 // MAIN GAME COMPONENT
@@ -15,7 +90,10 @@ function RainmakersGame() {
   const [offlineMsg, setOfflineMsg] = useState("");
   const [savedFlash, setSavedFlash] = useState(false);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  const [muted, setMuted] = useState(false);
   const tickRef = useRef(null);
+  const lastNotifIdRef = useRef(0);
+  const sounds = useSounds(muted);
 
   // ── Mobile detection (Fix 02) ─────────────────────────────
   useEffect(() => {
@@ -63,6 +141,21 @@ function RainmakersGame() {
     }, TICK_MS);
     return () => clearInterval(tickRef.current);
   }, [hydrated]);
+
+  // ── Sound triggers for tick-based events ─────────────────
+  useEffect(() => {
+    if (!hydrated) return;
+    const newNotifs = game.notifications.filter(n => n.id > lastNotifIdRef.current);
+    if (newNotifs.length > 0) {
+      lastNotifIdRef.current = Math.max(...game.notifications.map(n => n.id));
+      for (const n of newNotifs) {
+        if (n.msg.startsWith("✅ CONTRACT WON:")) { sounds.win(); break; }
+        if (n.msg.startsWith("🏆 TURF CAPTURED:")) { sounds.win(); break; }
+        if (n.msg.startsWith("💀 TURF LOST:")) { sounds.lose(); break; }
+        if (n.msg.startsWith("⚠️ CASH CRITICAL:")) { sounds.warning(); break; }
+      }
+    }
+  }, [game.notifications, hydrated, sounds]);
 
   const prod = useMemo(() => computeProduction(game), [game]);
   const g = game;
@@ -138,6 +231,7 @@ function RainmakersGame() {
           )}
           <button onClick={toggleSpeed} style={S.btn("#ffaa00", "#2a1a00")}>⚡ x{g.cycleSpeed}</button>
           <button onClick={togglePause} style={S.btn(g.paused ? "#00ff88" : "#ff4444", g.paused ? "#0d2a0d" : "#2a0d0d")}>{g.paused ? "▶" : "⏸"}</button>
+          <button onClick={() => setMuted(m => !m)} style={S.btn(muted ? "#666" : "#00ff88", muted ? "#1a1a1a" : "#0d2a0d")}>{muted ? "🔇" : "🔊"}</button>
           {!isMobile && <button onClick={() => setGame(prev => newGame())} style={S.btn("#888", "#1a1a1a")}>NEW</button>}
           {isMobile && (
             <button onClick={() => setGame(prev => ({ ...prev, showFeed: !prev.showFeed }))} style={S.btn("#888", "#1a1a1a")}>📡</button>
@@ -219,10 +313,10 @@ function RainmakersGame() {
                               <div style={{ background: isOwned ? "#00ff88" : "#00aaff", height: "100%", width: `${market.control}%`, transition: "width 0.3s" }} />
                             </div>
                             <div style={{ display: "flex", gap: "6px" }}>
-                              <button onClick={() => setGame(prev => attackMarket(prev, market.id))} style={{ ...S.btn("#00aaff", "#0d1a2a"), flex: 1, padding: isMobile ? "4px" : "6px", fontSize: "9px" }}>
+                              <button onClick={() => { sounds.attack(); setGame(prev => attackMarket(prev, market.id)); }} style={{ ...S.btn("#00aaff", "#0d1a2a"), flex: 1, padding: isMobile ? "4px" : "6px", fontSize: "9px" }}>
                                 ⚔️ PURSUE
                               </button>
-                              <button onClick={() => setGame(prev => defendMarket(prev, market.id))} style={{ ...S.btn("#00ff88", "#0d2a0d"), flex: 1, padding: isMobile ? "4px" : "6px", fontSize: "9px" }}>
+                              <button onClick={() => { sounds.attack(); setGame(prev => defendMarket(prev, market.id)); }} style={{ ...S.btn("#00ff88", "#0d2a0d"), flex: 1, padding: isMobile ? "4px" : "6px", fontSize: "9px" }}>
                                 🛡️ DEFEND
                               </button>
                             </div>
@@ -380,7 +474,7 @@ function RainmakersGame() {
                         </div>
                         <div style={{ fontSize: "11px", color: "#aaa", marginBottom: "12px" }}>{upgrade.desc}</div>
                         <div style={{ fontSize: "12px", color: "#00ff88", marginBottom: "10px" }}>{$(upgrade.cost)}</div>
-                        <button onClick={() => setGame(prev => buyUpgrade(prev, upgrade.id))} disabled={!canBuy} style={{ ...S.btn(typeColor, "#0d1117", !canBuy), width: "100%" }}>
+                        <button onClick={() => { sounds.upgrade(); setGame(prev => buyUpgrade(prev, upgrade.id)); }} disabled={!canBuy} style={{ ...S.btn(typeColor, "#0d1117", !canBuy), width: "100%" }}>
                           {upgrade.bought ? "✅ PURCHASED" : canBuy ? "BUY UPGRADE" : $(upgrade.cost) + " needed"}
                         </button>
                       </div>
