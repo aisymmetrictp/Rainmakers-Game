@@ -109,7 +109,7 @@ function RainmakersGame() {
 
   // ── Splash screen auto-dismiss ──────────────────────────
   useEffect(() => {
-    const timer = setTimeout(() => setShowSplash(false), 4000);
+    const timer = setTimeout(() => setShowSplash(false), 30000);
     return () => clearTimeout(timer);
   }, []);
 
