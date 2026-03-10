@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { SignIn, SignOutButton, useUser } from "@clerk/react";
 
 import { STORAGE_KEY, TICK_MS, OFFLINE_CAP_SEC, ECONOMIC_EVENTS, RIVAL_FIRMS, HIRE_BASE_COSTS, $, fmt } from "./constants.js";
 import { createInitialState, computeProduction, tickGame } from "./engine.js";
@@ -85,6 +86,7 @@ function useSounds(muted) {
 // MAIN GAME COMPONENT
 // ============================================================
 function RainmakersGame() {
+  const { user } = useUser();
   const [game, setGame] = useState(createInitialState);
   const [hydrated, setHydrated] = useState(false);
   const [offlineMsg, setOfflineMsg] = useState("");
@@ -479,6 +481,9 @@ function RainmakersGame() {
           <button onClick={togglePause} style={S.btn(g.paused ? "#00ff88" : "#ff4444", g.paused ? "#0d2a0d" : "#2a0d0d")}>{g.paused ? "▶" : "⏸"}</button>
           <button onClick={() => setMuted(m => !m)} style={S.btn(muted ? "#666" : "#00ff88", muted ? "#1a1a1a" : "#0d2a0d")}>{muted ? "🔇" : "🔊"}</button>
           {!isMobile && <button onClick={() => setGame(prev => newGame())} style={S.btn("#888", "#1a1a1a")}>NEW</button>}
+          <SignOutButton>
+            <button style={S.btn("#ff6666", "#1a1111")}>OUT</button>
+          </SignOutButton>
           {isMobile && (
             <button onClick={() => setGame(prev => ({ ...prev, showFeed: !prev.showFeed }))} style={S.btn("#888", "#1a1a1a")}>📡</button>
           )}
@@ -1008,10 +1013,76 @@ function RainmakersGame() {
   );
 }
 
+// ============================================================
+// AUTH GATE
+// ============================================================
+function AuthGate() {
+  const { isSignedIn, isLoaded } = useUser();
+
+  if (!isLoaded) {
+    return (
+      <div style={{ fontFamily: "'Courier New', monospace", background: "#0a0a0f", minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", color: "#555" }}>
+        <div style={{ fontSize: "14px", letterSpacing: "3px" }}>LOADING...</div>
+      </div>
+    );
+  }
+
+  if (!isSignedIn) {
+    return (
+      <div style={{
+        fontFamily: "'Courier New', monospace",
+        background: "radial-gradient(ellipse at center, #0d1117 0%, #050508 70%, #000 100%)",
+        minHeight: "100vh",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: "24px",
+      }}>
+        <div style={{ textAlign: "center", marginBottom: "8px" }}>
+          <PixelFigure size={3} color="#00ff88" animated />
+          <div style={{ fontSize: "36px", fontWeight: "bold", color: "#00ff88", letterSpacing: "8px", textShadow: "0 0 30px rgba(0,255,136,0.5)", marginTop: "12px" }}>RAINMAKERS</div>
+          <div style={{ fontSize: "11px", color: "#555", letterSpacing: "6px", marginTop: "4px" }}>CONSULTING EMPIRE</div>
+        </div>
+        <SignIn
+          appearance={{
+            elements: {
+              rootBox: { width: "100%" },
+              card: { background: "#0d1117", border: "1px solid #223", borderRadius: "8px", boxShadow: "0 0 40px rgba(0,255,136,0.05)" },
+              headerTitle: { color: "#e0e0e0" },
+              headerSubtitle: { color: "#666" },
+              formFieldLabel: { color: "#aaa" },
+              formFieldInput: { background: "#111", border: "1px solid #333", color: "#e0e0e0" },
+              formButtonPrimary: { background: "#00ff88", color: "#000", fontWeight: "bold" },
+              footerActionLink: { color: "#00aaff" },
+              socialButtonsBlockButton: { background: "#111", border: "1px solid #333", color: "#e0e0e0" },
+              dividerLine: { background: "#333" },
+              dividerText: { color: "#555" },
+              identityPreviewEditButton: { color: "#00aaff" },
+              formFieldInputShowPasswordButton: { color: "#666" },
+              alert: { background: "#1f0d0d", border: "1px solid #ff4444", color: "#ff8888" },
+            },
+          }}
+          routing="hash"
+        />
+        <div style={{ textAlign: "center", marginTop: "8px" }}>
+          <div style={{ fontSize: "10px", color: "#444", letterSpacing: "1px", marginBottom: "6px" }}>A PRODUCT OF</div>
+          <a href="https://aisymmetricsolutions.com" target="_blank" rel="noopener noreferrer" style={{ fontSize: "14px", color: "#00aaff", textDecoration: "none", letterSpacing: "2px", fontWeight: "bold" }}>AISymmetric</a>
+        </div>
+        <style>{`
+          @keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:0.5 } }
+        `}</style>
+      </div>
+    );
+  }
+
+  return <RainmakersGame />;
+}
+
 export default function App() {
   return (
     <ErrorBoundary>
-      <RainmakersGame />
+      <AuthGate />
     </ErrorBoundary>
   );
 }
