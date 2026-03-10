@@ -96,6 +96,7 @@ function RainmakersGame() {
   const lastNotifIdRef = useRef(0);
   const toastIdRef = useRef(0);
   const attackTicksRef = useRef({});
+  const claimedMilestonesRef = useRef({});
   const sounds = useSounds(muted);
 
   const addToast = useCallback((msg, type, ttl = 4000) => {
@@ -208,6 +209,64 @@ function RainmakersGame() {
     }
     attackTicksRef.current = nextTicks;
   }, [game.notifications, game.markets, hydrated, sounds, addToast]);
+
+  // ── Win condition milestones ────────────────────────────
+  const naMarketIds = ["sf", "chi", "nyc"];
+  const ownedNACount = game.markets.filter(m => naMarketIds.includes(m.id) && m.control >= 100).length;
+  const uniqueOwnedRegions = [...new Set(game.markets.filter(m => m.control >= 100).map(m => m.region))].length;
+
+  const milestones = [
+    { id: "m1", title: "Regional Dominance", goal: "Control all 3 N. America markets (SF, Chicago, NYC)", progress: ownedNACount, target: 3, reward: "+Unlock Europe Desk discount 20%" },
+    { id: "m2", title: "Contract Machine", goal: "Win 3 contracts", progress: Math.min(game.resources.wins, 3), target: 3, reward: "+500k bonus cash" },
+    { id: "m3", title: "Global Firm", goal: "Own turf in 3 different regions", progress: Math.min(uniqueOwnedRegions, 3), target: 3, reward: "+Prestige multiplier x1.5 on next reset" },
+    { id: "m4", title: "Rainmaker Empire", goal: "Reach global score 5,000", progress: Math.min(game.resources.globalScore, 5000), target: 5000, reward: "🏆 PRESTIGE RESET UNLOCKED" },
+  ];
+
+  // ── Milestone reward auto-claim (fire once per milestone) ──
+  useEffect(() => {
+    if (!hydrated) return;
+    for (const ms of milestones) {
+      if (ms.progress >= ms.target && !claimedMilestonesRef.current[ms.id]) {
+        claimedMilestonesRef.current[ms.id] = true;
+        addToast(`🎯 MILESTONE: ${ms.title} complete!`, "success", 6000);
+        sounds.win();
+        if (ms.id === "m1") {
+          // Discount Europe Desk by 20%
+          setGame(prev => ({
+            ...prev,
+            upgrades: prev.upgrades.map(u => u.id === "u5" && !u.bought ? { ...u, cost: Math.floor(u.cost * 0.8) } : u),
+            notifications: [...prev.notifications.slice(-11), { id: prev.nextNotifId, msg: "🎯 MILESTONE: Regional Dominance — Europe Desk 20% off!", type: "success" }],
+            nextNotifId: prev.nextNotifId + 1,
+          }));
+        }
+        if (ms.id === "m2") {
+          // Grant 500k bonus cash
+          setGame(prev => ({
+            ...prev,
+            resources: { ...prev.resources, cash: prev.resources.cash + 500000 },
+            notifications: [...prev.notifications.slice(-11), { id: prev.nextNotifId, msg: "🎯 MILESTONE: Contract Machine — +$500,000 bonus!", type: "success" }],
+            nextNotifId: prev.nextNotifId + 1,
+          }));
+        }
+        if (ms.id === "m3") {
+          // Store prestige multiplier flag for next reset
+          setGame(prev => ({
+            ...prev,
+            prestigeMultiplier: 1.5,
+            notifications: [...prev.notifications.slice(-11), { id: prev.nextNotifId, msg: "🎯 MILESTONE: Global Firm — Prestige x1.5 on next reset!", type: "success" }],
+            nextNotifId: prev.nextNotifId + 1,
+          }));
+        }
+        if (ms.id === "m4") {
+          setGame(prev => ({
+            ...prev,
+            notifications: [...prev.notifications.slice(-11), { id: prev.nextNotifId, msg: "🎯 MILESTONE: Rainmaker Empire — 🏆 PRESTIGE RESET UNLOCKED!", type: "success" }],
+            nextNotifId: prev.nextNotifId + 1,
+          }));
+        }
+      }
+    }
+  }, [hydrated, milestones, addToast, sounds]);
 
   const prod = useMemo(() => computeProduction(game), [game]);
   const g = game;
@@ -580,6 +639,55 @@ function RainmakersGame() {
                       <div style={{ fontSize: "22px", fontWeight: "bold", color: s.color }}>{s.value}</div>
                     </div>
                   ))}
+                </div>
+
+                {/* ── WIN CONDITIONS ──────────────────── */}
+                <div style={{ marginTop: "20px" }}>
+                  <div style={{ fontSize: "10px", color: "#555", letterSpacing: "2px", marginBottom: "12px" }}>🎯 WIN CONDITIONS</div>
+                  <div style={{ display: "grid", gridTemplateColumns: `repeat(auto-fill, minmax(${isMobile ? "260px" : "280px"}, 1fr))`, gap: "12px" }}>
+                    {milestones.map(ms => {
+                      const complete = ms.progress >= ms.target;
+                      const pct = Math.min(100, (ms.progress / ms.target) * 100);
+                      return (
+                        <div key={ms.id} style={{
+                          background: "#0d1117",
+                          border: `1px solid ${complete ? "#00ff88" : "#334"}`,
+                          borderRadius: "8px",
+                          padding: "14px",
+                          boxShadow: complete ? "0 0 12px rgba(0,255,136,0.1)" : "none",
+                        }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+                            <div style={{ fontSize: "13px", fontWeight: "bold", color: complete ? "#00ff88" : "#e0e0e0" }}>{ms.title}</div>
+                            {complete && <span style={{ fontSize: "16px" }}>✅</span>}
+                          </div>
+                          <div style={{ fontSize: "11px", color: "#888", marginBottom: "10px" }}>{ms.goal}</div>
+                          {!complete ? (
+                            <>
+                              <div style={{ display: "flex", justifyContent: "space-between", fontSize: "10px", color: "#ffaa00", marginBottom: "4px" }}>
+                                <span>PROGRESS</span>
+                                <span>{ms.target >= 1000 ? `${fmt(ms.progress)} / ${fmt(ms.target)}` : `${ms.progress} / ${ms.target}`}</span>
+                              </div>
+                              <div style={{ background: "#1a1a1a", height: "8px", borderRadius: "4px", overflow: "hidden", marginBottom: "10px" }}>
+                                <div style={{ background: "linear-gradient(90deg, #ffaa00, #ffcc00)", height: "100%", width: `${pct}%`, transition: "width 0.3s", borderRadius: "4px" }} />
+                              </div>
+                            </>
+                          ) : (
+                            <div style={{ fontSize: "11px", color: "#00ff88", marginBottom: "10px", fontWeight: "bold" }}>COMPLETE</div>
+                          )}
+                          <div style={{
+                            fontSize: "10px",
+                            color: complete ? "#88ff88" : "#666",
+                            background: complete ? "#0d1f0d" : "#111",
+                            border: `1px solid ${complete ? "#00ff8833" : "#222"}`,
+                            borderRadius: "4px",
+                            padding: "6px 10px",
+                          }}>
+                            {complete ? "✓ " : "🔒 "}{ms.reward}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
             )}
