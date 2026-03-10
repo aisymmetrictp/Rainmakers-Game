@@ -92,6 +92,7 @@ function RainmakersGame() {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const [muted, setMuted] = useState(false);
   const [toasts, setToasts] = useState([]);
+  const [showSplash, setShowSplash] = useState(true);
   const tickRef = useRef(null);
   const lastNotifIdRef = useRef(0);
   const toastIdRef = useRef(0);
@@ -104,6 +105,12 @@ function RainmakersGame() {
       const next = [...prev, { id: ++toastIdRef.current, msg, type, ttl, maxTtl: ttl }];
       return next.length > 4 ? next.slice(next.length - 4) : next;
     });
+  }, []);
+
+  // ── Splash screen auto-dismiss ──────────────────────────
+  useEffect(() => {
+    const timer = setTimeout(() => setShowSplash(false), 4000);
+    return () => clearTimeout(timer);
   }, []);
 
   // ── Mobile detection (Fix 02) ─────────────────────────────
@@ -302,6 +309,134 @@ function RainmakersGame() {
 
   return (
     <div style={S.page}>
+      {/* ── SPLASH SCREEN ─────────────────────────────────── */}
+      {showSplash && (
+        <div
+          onClick={() => setShowSplash(false)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 200,
+            background: "radial-gradient(ellipse at center, #0d1117 0%, #050508 70%, #000 100%)",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: "16px",
+            fontFamily: "'Courier New', monospace",
+            cursor: "pointer",
+            animation: "splashFadeIn 0.6s ease-out",
+          }}
+        >
+          {/* Pixel character */}
+          <div style={{ animation: "splashFloat 2s ease-in-out infinite", marginBottom: "8px" }}>
+            <PixelFigure size={4} color="#00ff88" animated />
+          </div>
+
+          {/* Game title */}
+          <div style={{
+            fontSize: isMobile ? "28px" : "42px",
+            fontWeight: "bold",
+            color: "#00ff88",
+            letterSpacing: "8px",
+            textShadow: "0 0 30px rgba(0,255,136,0.5), 0 0 60px rgba(0,255,136,0.2)",
+            textAlign: "center",
+          }}>
+            RAINMAKERS
+          </div>
+          <div style={{
+            fontSize: isMobile ? "10px" : "13px",
+            color: "#555",
+            letterSpacing: "6px",
+            marginTop: "-8px",
+            textAlign: "center",
+          }}>
+            CONSULTING EMPIRE
+          </div>
+
+          {/* Welcome message */}
+          <div style={{
+            marginTop: "20px",
+            padding: "12px 24px",
+            background: "#0d2a0d",
+            border: "1px solid #00ff8844",
+            borderRadius: "6px",
+            fontSize: isMobile ? "12px" : "14px",
+            color: "#88ff88",
+            letterSpacing: "2px",
+            textAlign: "center",
+            animation: "pulse 2s infinite",
+          }}>
+            Thanks for playing!
+          </div>
+
+          {/* Credits */}
+          <div style={{
+            marginTop: "28px",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: "10px",
+          }}>
+            <div style={{ fontSize: "12px", color: "#666", letterSpacing: "2px" }}>CREATED BY</div>
+            <div style={{ fontSize: isMobile ? "16px" : "20px", fontWeight: "bold", color: "#e0e0e0", letterSpacing: "2px" }}>
+              Tyler Perleberg
+            </div>
+            <div style={{ fontSize: "11px", color: "#555", letterSpacing: "2px", marginTop: "4px" }}>A PRODUCT OF</div>
+            <a
+              href="https://aisymmetricsolutions.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                fontSize: isMobile ? "14px" : "18px",
+                fontWeight: "bold",
+                color: "#00aaff",
+                letterSpacing: "3px",
+                textDecoration: "none",
+                textShadow: "0 0 10px rgba(0,170,255,0.3)",
+                transition: "color 0.2s, text-shadow 0.2s",
+              }}
+              onMouseEnter={(e) => { e.target.style.color = "#44ccff"; e.target.style.textShadow = "0 0 20px rgba(0,170,255,0.6)"; }}
+              onMouseLeave={(e) => { e.target.style.color = "#00aaff"; e.target.style.textShadow = "0 0 10px rgba(0,170,255,0.3)"; }}
+            >
+              AISymmetric
+            </a>
+          </div>
+
+          {/* Contact */}
+          <div style={{ marginTop: "20px", display: "flex", flexDirection: "column", alignItems: "center", gap: "6px" }}>
+            <div style={{ fontSize: "10px", color: "#444", letterSpacing: "1px" }}>CONTACT</div>
+            <a
+              href="mailto:tyler.perleberg@aisymmetricsolutions.com"
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                fontSize: "12px",
+                color: "#ffaa00",
+                textDecoration: "none",
+                letterSpacing: "1px",
+                transition: "color 0.2s",
+              }}
+              onMouseEnter={(e) => { e.target.style.color = "#ffcc44"; }}
+              onMouseLeave={(e) => { e.target.style.color = "#ffaa00"; }}
+            >
+              tyler.perleberg@aisymmetricsolutions.com
+            </a>
+          </div>
+
+          {/* Click to continue */}
+          <div style={{
+            marginTop: "32px",
+            fontSize: "10px",
+            color: "#333",
+            letterSpacing: "3px",
+            animation: "pulse 1.5s infinite",
+          }}>
+            CLICK ANYWHERE TO CONTINUE
+          </div>
+        </div>
+      )}
+
       {/* ── HEADER ───────────────────────────────────────── */}
       <div style={S.header}>
         <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
@@ -862,6 +997,8 @@ function RainmakersGame() {
       <style>{`
         @keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:0.5 } }
         @keyframes toastSlideIn { from { transform: translateX(120px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+        @keyframes splashFadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes splashFloat { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
         button:not(:disabled):hover { filter: brightness(1.25); }
         ::-webkit-scrollbar { width: 4px; height: 4px; }
         ::-webkit-scrollbar-track { background: #111; }
