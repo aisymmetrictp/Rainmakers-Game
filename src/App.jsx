@@ -91,9 +91,19 @@ function RainmakersGame() {
   const [savedFlash, setSavedFlash] = useState(false);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const [muted, setMuted] = useState(false);
+  const [toasts, setToasts] = useState([]);
   const tickRef = useRef(null);
   const lastNotifIdRef = useRef(0);
+  const toastIdRef = useRef(0);
+  const attackTicksRef = useRef({});
   const sounds = useSounds(muted);
+
+  const addToast = useCallback((msg, type, ttl = 4000) => {
+    setToasts(prev => {
+      const next = [...prev, { id: ++toastIdRef.current, msg, type, ttl, maxTtl: ttl }];
+      return next.length > 4 ? next.slice(next.length - 4) : next;
+    });
+  }, []);
 
   // ── Mobile detection (Fix 02) ─────────────────────────────
   useEffect(() => {
@@ -101,6 +111,15 @@ function RainmakersGame() {
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, []);
+
+  // ── Toast TTL countdown ──────────────────────────────────
+  useEffect(() => {
+    if (toasts.length === 0) return;
+    const timer = setInterval(() => {
+      setToasts(prev => prev.map(t => ({ ...t, ttl: t.ttl - 100 })).filter(t => t.ttl > 0));
+    }, 100);
+    return () => clearInterval(timer);
+  }, [toasts.length > 0]);
 
   // ── Load from localStorage + offline catch-up (Fix 01 + 06) ─
   useEffect(() => {
@@ -142,20 +161,53 @@ function RainmakersGame() {
     return () => clearInterval(tickRef.current);
   }, [hydrated]);
 
-  // ── Sound triggers for tick-based events ─────────────────
+  // ── Sound + toast triggers for tick-based events ─────────
   useEffect(() => {
     if (!hydrated) return;
     const newNotifs = game.notifications.filter(n => n.id > lastNotifIdRef.current);
     if (newNotifs.length > 0) {
       lastNotifIdRef.current = Math.max(...game.notifications.map(n => n.id));
       for (const n of newNotifs) {
-        if (n.msg.startsWith("✅ CONTRACT WON:")) { sounds.win(); break; }
-        if (n.msg.startsWith("🏆 TURF CAPTURED:")) { sounds.win(); break; }
-        if (n.msg.startsWith("💀 TURF LOST:")) { sounds.lose(); break; }
-        if (n.msg.startsWith("⚠️ CASH CRITICAL:")) { sounds.warning(); break; }
+        if (n.msg.startsWith("✅ CONTRACT WON:")) {
+          sounds.win();
+          addToast(n.msg, "success");
+          break;
+        }
+        if (n.msg.startsWith("🏆 TURF CAPTURED:")) {
+          sounds.win();
+          addToast(n.msg, "success");
+          break;
+        }
+        if (n.msg.startsWith("💀 TURF LOST:")) {
+          sounds.lose();
+          addToast(n.msg, "danger", 6000);
+          break;
+        }
+        if (n.msg.startsWith("⚠️ CASH CRITICAL:")) {
+          sounds.warning();
+          addToast(n.msg, "warning");
+          break;
+        }
+        if (n.msg.includes("BANKRUPTCY")) {
+          sounds.lose();
+          addToast(n.msg, "danger", 8000);
+          break;
+        }
       }
     }
-  }, [game.notifications, hydrated, sounds]);
+
+    // Track consecutive "under attack" ticks for sustained-attack toast
+    const attackedIds = game.markets.filter(m => m.underAttack && !m.locked).map(m => m.id);
+    const nextTicks = {};
+    for (const id of attackedIds) {
+      nextTicks[id] = (attackTicksRef.current[id] || 0) + 1;
+      if (nextTicks[id] === 3) {
+        const market = game.markets.find(m => m.id === id);
+        if (market) addToast(`⚔️ ${market.name} under sustained attack!`, "warning");
+      }
+    }
+    attackTicksRef.current = nextTicks;
+  }, [game.notifications, game.markets, hydrated, sounds, addToast]);
 
   const prod = useMemo(() => computeProduction(game), [game]);
   const g = game;
@@ -637,8 +689,71 @@ function RainmakersGame() {
         </>
       )}
 
+      {/* ── TOAST NOTIFICATIONS ──────────────────────────── */}
+      <div style={{
+        position: "fixed",
+        top: isMobile ? "auto" : "80px",
+        bottom: isMobile ? "16px" : "auto",
+        right: isMobile ? "50%" : "20px",
+        transform: isMobile ? "translateX(50%)" : "none",
+        zIndex: 100,
+        display: "flex",
+        flexDirection: "column",
+        gap: "8px",
+        pointerEvents: "none",
+        width: isMobile ? "90vw" : "320px",
+        maxWidth: "360px",
+      }}>
+        {toasts.map(t => {
+          const colors = {
+            success: { border: "#00ff88", bg: "#0d1f0d", text: "#88ff88", bar: "#00ff88" },
+            danger:  { border: "#ff4444", bg: "#1f0d0d", text: "#ff8888", bar: "#ff4444" },
+            warning: { border: "#ffaa00", bg: "#1a1000", text: "#ffcc88", bar: "#ffaa00" },
+            info:    { border: "#00aaff", bg: "#0d1117", text: "#88ccff", bar: "#00aaff" },
+          };
+          const c = colors[t.type] || colors.info;
+          const pct = (t.ttl / t.maxTtl) * 100;
+          return (
+            <div key={t.id} style={{
+              background: c.bg,
+              border: `1px solid ${c.border}33`,
+              borderLeft: `4px solid ${c.border}`,
+              borderRadius: "6px",
+              padding: "10px 14px 8px",
+              fontSize: "12px",
+              color: c.text,
+              fontFamily: "'Courier New', monospace",
+              boxShadow: `0 4px 20px ${c.border}22`,
+              animation: "toastSlideIn 0.2s ease-out",
+              pointerEvents: "auto",
+              position: "relative",
+              overflow: "hidden",
+            }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "8px" }}>
+                <span>{t.msg}</span>
+                <button
+                  onClick={() => setToasts(prev => prev.filter(x => x.id !== t.id))}
+                  style={{ background: "none", border: "none", color: c.text, cursor: "pointer", fontSize: "14px", padding: 0, lineHeight: 1, opacity: 0.6, flexShrink: 0 }}
+                >✕</button>
+              </div>
+              <div style={{
+                position: "absolute",
+                bottom: 0,
+                left: 0,
+                height: "2px",
+                width: `${pct}%`,
+                background: c.bar,
+                opacity: 0.6,
+                transition: "width 0.1s linear",
+              }} />
+            </div>
+          );
+        })}
+      </div>
+
       <style>{`
         @keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:0.5 } }
+        @keyframes toastSlideIn { from { transform: translateX(120px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
         button:not(:disabled):hover { filter: brightness(1.25); }
         ::-webkit-scrollbar { width: 4px; height: 4px; }
         ::-webkit-scrollbar-track { background: #111; }
